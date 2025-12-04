@@ -46,12 +46,30 @@ mongoose.connect(mongoUri)
 const app = express();
 
 // ===== CORS Configuration =====
+// Allow multiple origins for flexibility
+const allowedOrigins = process.env.NODE_ENV === 'production'
+  ? [
+      process.env.FRONTEND_URL,
+      'https://ambitious-glacier-058b0710f.3.azurestaticapps.net',
+      // Add any other production frontend URLs here
+    ].filter(Boolean) // Remove undefined values
+  : ['http://localhost:3000', 'http://localhost:3001'];
+
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production'
-    ? process.env.FRONTEND_URL
-    : 'http://localhost:3000',
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
+      callback(null, true);
+    } else {
+      console.warn(`⚠️ CORS blocked origin: ${origin}`);
+      console.log(`✅ Allowed origins: ${allowedOrigins.join(', ')}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: [
     'Content-Type',
     'Authorization',
@@ -63,7 +81,15 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-console.log('🔧 CORS Configuration:', corsOptions);
+
+// Handle preflight requests explicitly
+app.options('*', cors(corsOptions));
+
+console.log('🔧 CORS Configuration:', {
+  allowedOrigins,
+  environment: process.env.NODE_ENV,
+  frontendUrl: process.env.FRONTEND_URL
+});
 
 // ===== Request Logging Middleware =====
 app.use((req, res, next) => {
