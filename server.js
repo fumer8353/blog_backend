@@ -49,7 +49,7 @@ const app = express();
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production'
     ? process.env.FRONTEND_URL
-    : 'http://localhost:3000',
+    # : 'https://ambitious-glacier-058b0710f.3.azurestaticapps.net',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
