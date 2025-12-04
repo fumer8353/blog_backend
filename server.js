@@ -13,33 +13,55 @@ import authRoutes from './routes/auth.js';
 import publicRoutes from './routes/public.js';
 
 // ===== Validate Required Environment Variables =====
-const requiredEnvVars = ['JWT_SECRET', 'NODE_ENV'];
+console.log('🔍 Checking environment variables...');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('PORT:', process.env.PORT);
 
-if (process.env.NODE_ENV === 'production') {
-  requiredEnvVars.push('FRONTEND_URL');
-}
+const requiredEnvVars = ['JWT_SECRET'];
 
+// Warn about missing variables but don't exit immediately
 requiredEnvVars.forEach(envVar => {
   if (!process.env[envVar]) {
     console.error(`❌ Missing required environment variable: ${envVar}`);
-    process.exit(1);
+    console.error('⚠️ Server will start but authentication will fail');
+  } else {
+    console.log(`✅ ${envVar} is set`);
   }
 });
+
+if (process.env.NODE_ENV === 'production' && !process.env.FRONTEND_URL) {
+  console.warn('⚠️ FRONTEND_URL not set in production - CORS may not work correctly');
+} else if (process.env.FRONTEND_URL) {
+  console.log(`✅ FRONTEND_URL: ${process.env.FRONTEND_URL}`);
+}
 
 // ===== Connect to MongoDB =====
 const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
 
 if (!mongoUri) {
   console.error('❌ MONGO_URI not defined in environment variables');
-  process.exit(1);
-}
+  console.error('⚠️ Server will start but database operations will fail');
+} else {
+  console.log('🔗 Attempting MongoDB connection...');
+  
+  // Set connection options for better reliability
+  const mongooseOptions = {
+    serverSelectionTimeoutMS: 10000, // 10 seconds
+    socketTimeoutMS: 45000,
+    maxPoolSize: 10,
+  };
 
-mongoose.connect(mongoUri)
-  .then(() => console.log('✅ MongoDB connected'))
-  .catch(err => {
-    console.error('❌ MongoDB connection error:', err);
-    process.exit(1);
-  });
+  mongoose.connect(mongoUri, mongooseOptions)
+    .then(() => {
+      console.log('✅ MongoDB connected successfully');
+      console.log('📊 Database:', mongoose.connection.name);
+    })
+    .catch(err => {
+      console.error('❌ MongoDB connection error:', err.message);
+      console.error('⚠️ Server will continue but database operations will fail');
+      console.error('💡 Check your MONGO_URI connection string and network settings');
+    });
+}
 
 
 // ===== Initialize App =====
@@ -115,14 +137,79 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// ===== Health Check Endpoint =====
+app.get('/health', (req, res) => {
+  const health = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || 'development',
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    mongodbState: ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoose.connection.readyState] || 'unknown'
+  };
+  res.status(health.database === 'connected' ? 200 : 503).json(health);
+});
+
 // ===== Routes =====
 app.use('/api/admin', authenticateToken, adminRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/posts', publicRoutes);
 
+// ===== Error Handling Middleware =====
+app.use((err, req, res, next) => {
+  console.error('❌ Unhandled error:', err);
+  res.status(err.status || 500).json({
+    error: process.env.NODE_ENV === 'production' 
+      ? 'Internal server error' 
+      : err.message,
+    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+  });
+});
+
+// ===== 404 Handler =====
+app.use((req, res) => {
+  res.status(404).json({ error: 'Route not found' });
+});
+
 // ===== Start Server =====
 const PORT = process.env.PORT || 5000;
+
+// Graceful shutdown handling
+process.on('SIGTERM', () => {
+  console.log('⚠️ SIGTERM received, shutting down gracefully...');
+  mongoose.connection.close().then(() => {
+    console.log('✅ MongoDB connection closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('⚠️ SIGINT received, shutting down gracefully...');
+  mongoose.connection.close().then(() => {
+    console.log('✅ MongoDB connection closed');
+    process.exit(0);
+  });
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (err) => {
+  console.error('❌ Unhandled Promise Rejection:', err);
+  // Don't exit in production, let Azure handle restarts
+  if (process.env.NODE_ENV !== 'production') {
+    process.exit(1);
+  }
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err);
+  // Always exit on uncaught exceptions
+  process.exit(1);
+});
+
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🌐 Frontend URL: ${process.env.FRONTEND_URL || 'not configured'}`);
+  console.log(`💚 Health check: http://localhost:${PORT}/health`);
 });
