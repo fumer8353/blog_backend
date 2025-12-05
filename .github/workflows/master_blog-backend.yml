@@ -23,12 +23,7 @@ jobs:
         with:
           node-version: '22.x'
 
-      - name: Change to backend directory
-        run: |
-          cd backend || echo "Already in backend directory"
-
       - name: npm install, build, and test
-        working-directory: ./backend
         run: |
           npm install
           npm run build --if-present
@@ -38,7 +33,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: backend
+          path: .
 
   deploy:
     runs-on: ubuntu-latest
