@@ -1,47 +1,78 @@
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
-import { v4 as uuidv4 } from 'uuid';
 import User from '../models/user.js';
 
 dotenv.config();
 
-mongoose.connect('mongodb://localhost:27017/blogapp_db', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log('MongoDB connected'))
-.catch(err => console.error('MongoDB connection error:', err));
+// --- Helpers ---
+const parseArgs = () => {
+  const args = {};
+  process.argv.slice(2).forEach(arg => {
+    const [key, val] = arg.replace(/^--/, '').split('=');
+    args[key] = val;
+  });
+  return args;
+};
 
-const createAdminUser = async () => {
+const args = parseArgs();
+
+const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI || 'mongodb://localhost:27017/blogapp_db';
+const email = args.email || process.env.ADMIN_EMAIL;
+const password = args.password || process.env.ADMIN_PASSWORD;
+const name = args.name || process.env.ADMIN_NAME || 'Admin User';
+const role = args.role || 'admin';
+
+if (!email || !password) {
+  console.error('❌ Missing email or password. Provide via --email=... --password=... or env ADMIN_EMAIL / ADMIN_PASSWORD');
+  process.exit(1);
+}
+
+const connect = async () => {
   try {
-    // Admin user details
-    const adminUser = {
-      id: `user:${uuidv4()}`,
-      name: 'Admin User',
-      email: 'fumer8353@gmail.com',
-      role: 'admin',
-      createdAt: new Date().toISOString()
-    };
-    // Hash the password
-    const password = 'admin123'; // You can change this
-    const salt = await bcrypt.genSalt(10);
-    adminUser.password = await bcrypt.hash(password, salt);
-    const existingAdmin = await User.findByEmail(adminUser.email);
-    if (existingAdmin) {
-      console.log('Admin user already exists');
-      return;
-    }
-    await User.create(adminUser);
-    console.log('Admin user created successfully');
-    console.log('Email:', adminUser.email);
-    console.log('Password:', password);
-    console.log('Please change the password after first login');
-  } catch (error) {
-    console.error('Error creating admin user:', error);
+    await mongoose.connect(mongoUri, {
+      serverSelectionTimeoutMS: 10000,
+    });
+    console.log('✅ MongoDB connected');
+  } catch (err) {
+    console.error('❌ MongoDB connection error:', err.message);
     process.exit(1);
   }
 };
 
-// Run the script
-createAdminUser(); 
+const createAdminUser = async () => {
+  try {
+    const existingAdmin = await User.findByEmail(email);
+    if (existingAdmin) {
+      console.log('ℹ️ Admin user already exists with email:', email);
+      return;
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashed = await bcrypt.hash(password, salt);
+
+    const created = await User.create({
+      name,
+      email,
+      password: hashed,
+      role,
+    });
+
+    console.log('✅ Admin user created successfully');
+    console.log('Email:', email);
+    console.log('Password:', password);
+    console.log('Note: Change this password after first login.');
+  } catch (error) {
+    console.error('❌ Error creating admin user:', error);
+    process.exit(1);
+  } finally {
+    await mongoose.connection.close();
+  }
+};
+
+const run = async () => {
+  await connect();
+  await createAdminUser();
+};
+
+run();

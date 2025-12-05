@@ -23,7 +23,12 @@ jobs:
         with:
           node-version: '22.x'
 
+      - name: Change to backend directory
+        run: |
+          cd backend || echo "Already in backend directory"
+
       - name: npm install, build, and test
+        working-directory: ./backend
         run: |
           npm install
           npm run build --if-present
@@ -33,7 +38,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: .
+          path: backend
 
   deploy:
     runs-on: ubuntu-latest
@@ -54,6 +59,11 @@ jobs:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_68DF5501B1DE4BFE956526CF39F5A38A }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_8B95EA3D9296425EB0ABDA16563FC957 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_CE696A7F893A4E9D8295B62ED677E990 }}
+
+      - name: Start Azure Web App (if stopped)
+        run: |
+          az webapp start --name blog-backend --resource-group $(az webapp show --name blog-backend --query resourceGroup -o tsv)
+        continue-on-error: true
 
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp
