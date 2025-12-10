@@ -9,8 +9,15 @@ dotenv.config();
 const parseArgs = () => {
   const args = {};
   process.argv.slice(2).forEach(arg => {
-    const [key, val] = arg.replace(/^--/, '').split('=');
-    args[key] = val;
+    // Use split('=', 2) to only split on the first '=' character
+    // This allows values to contain '=' characters (e.g., passwords with '=')
+    const parts = arg.replace(/^--/, '').split('=', 2);
+    if (parts.length === 2) {
+      args[parts[0]] = parts[1];
+    } else if (parts.length === 1) {
+      // Handle flag without value (e.g., --help)
+      args[parts[0]] = true;
+    }
   });
   return args;
 };

@@ -72,33 +72,36 @@ const app = express();
 // Priority: FRONTEND_URL environment variable (required in production)
 // Additional origins can be set via FRONTEND_URLS (comma-separated)
 const getAllowedOrigins = () => {
-  if (process.env.NODE_ENV === 'production') {
-    const origins = [];
-    
-    // Primary frontend URL from environment variable (required)
-    if (process.env.FRONTEND_URL) {
-      const url = process.env.FRONTEND_URL.trim();
-      // Remove trailing slash if present
-      origins.push(url.endsWith('/') ? url.slice(0, -1) : url);
-    } else {
-      console.warn('⚠️ FRONTEND_URL environment variable is not set in production!');
-      console.warn('💡 Set it in Azure App Service → Configuration → Application settings');
-    }
-    
-    // Additional frontend URLs (optional, comma-separated)
-    if (process.env.FRONTEND_URLS) {
-      const additionalUrls = process.env.FRONTEND_URLS.split(',')
-        .map(url => url.trim())
-        .filter(url => url.length > 0)
-        .map(url => url.endsWith('/') ? url.slice(0, -1) : url);
-      origins.push(...additionalUrls);
-    }
-    
-    return origins.filter(Boolean); // Remove any undefined/null values
+  // Only return localhost origins for explicit development mode
+  if (process.env.NODE_ENV === 'development') {
+    return ['http://localhost:3000', 'http://localhost:3001'];
   }
   
-  // Development: allow localhost origins
-  return ['http://localhost:3000', 'http://localhost:3001'];
+  // For production or any other NODE_ENV value (including undefined, staging, test, etc.)
+  // Use production-like strict behavior
+  const origins = [];
+  
+  // Primary frontend URL from environment variable
+  if (process.env.FRONTEND_URL) {
+    const url = process.env.FRONTEND_URL.trim();
+    // Remove trailing slash if present
+    origins.push(url.endsWith('/') ? url.slice(0, -1) : url);
+  } else if (process.env.NODE_ENV === 'production') {
+    console.warn('⚠️ FRONTEND_URL environment variable is not set in production!');
+    console.warn('💡 Set it in Azure App Service → Configuration → Application settings');
+  }
+  
+  // Additional frontend URLs (optional, comma-separated)
+  if (process.env.FRONTEND_URLS) {
+    const additionalUrls = process.env.FRONTEND_URLS.split(',')
+      .map(url => url.trim())
+      .filter(url => url.length > 0)
+      .map(url => url.endsWith('/') ? url.slice(0, -1) : url);
+    origins.push(...additionalUrls);
+  }
+  
+  // Return origins (empty array if none configured - strict behavior)
+  return origins.filter(Boolean); // Remove any undefined/null values
 };
 
 const allowedOrigins = getAllowedOrigins();
@@ -188,15 +191,24 @@ app.use(express.urlencoded({ extended: true }));
 
 // ===== Health Check Endpoint =====
 app.get('/health', (req, res) => {
+  const readyState = mongoose.connection.readyState;
+  const stateNames = ['disconnected', 'connected', 'connecting', 'disconnecting'];
+  const mongodbState = stateNames[readyState] || 'unknown';
+  
   const health = {
     status: 'ok',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || 'development',
-    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-    mongodbState: ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoose.connection.readyState] || 'unknown'
+    database: readyState === 1 ? 'connected' : (readyState === 2 ? 'connecting' : 'disconnected'),
+    mongodbState: mongodbState
   };
-  res.status(health.database === 'connected' ? 200 : 503).json(health);
+  
+  // Return 200 (OK) if connected or connecting (startup phase)
+  // Only return 503 if disconnected or disconnecting (actual failure)
+  // This prevents Azure from marking service as unhealthy during startup
+  const isHealthy = readyState === 1 || readyState === 2; // connected or connecting
+  res.status(isHealthy ? 200 : 503).json(health);
 });
 
 // ===== Routes =====
