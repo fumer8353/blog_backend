@@ -69,13 +69,39 @@ const app = express();
 
 // ===== CORS Configuration =====
 // Allow multiple origins for flexibility
-const allowedOrigins = process.env.NODE_ENV === 'production'
-  ? [
-      process.env.FRONTEND_URL,
-      'https://ambitious-glacier-058b0710f.3.azurestaticapps.net',
-      // Add any other production frontend URLs here
-    ].filter(Boolean) // Remove undefined values
-  : ['http://localhost:3000', 'http://localhost:3001'];
+// Priority: FRONTEND_URL environment variable (required in production)
+// Additional origins can be set via FRONTEND_URLS (comma-separated)
+const getAllowedOrigins = () => {
+  if (process.env.NODE_ENV === 'production') {
+    const origins = [];
+    
+    // Primary frontend URL from environment variable (required)
+    if (process.env.FRONTEND_URL) {
+      const url = process.env.FRONTEND_URL.trim();
+      // Remove trailing slash if present
+      origins.push(url.endsWith('/') ? url.slice(0, -1) : url);
+    } else {
+      console.warn('⚠️ FRONTEND_URL environment variable is not set in production!');
+      console.warn('💡 Set it in Azure App Service → Configuration → Application settings');
+    }
+    
+    // Additional frontend URLs (optional, comma-separated)
+    if (process.env.FRONTEND_URLS) {
+      const additionalUrls = process.env.FRONTEND_URLS.split(',')
+        .map(url => url.trim())
+        .filter(url => url.length > 0)
+        .map(url => url.endsWith('/') ? url.slice(0, -1) : url);
+      origins.push(...additionalUrls);
+    }
+    
+    return origins.filter(Boolean); // Remove any undefined/null values
+  }
+  
+  // Development: allow localhost origins
+  return ['http://localhost:3000', 'http://localhost:3001'];
+};
+
+const allowedOrigins = getAllowedOrigins();
 
 const corsOptions = {
   origin: function (origin, callback) {
