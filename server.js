@@ -108,12 +108,35 @@ const corsOptions = {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
-      callback(null, true);
+    // Security: Only allow all origins in development mode (explicit check)
+    // In production, NODE_ENV must be explicitly set to 'production'
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    // In development, allow all origins
+    if (isDevelopment) {
+      return callback(null, true);
+    }
+    
+    // In production, only allow configured origins
+    if (isProduction) {
+      if (allowedOrigins.indexOf(origin) !== -1) {
+        return callback(null, true);
+      } else {
+        console.warn(`⚠️ CORS blocked origin: ${origin}`);
+        console.log(`✅ Allowed origins: ${allowedOrigins.join(', ')}`);
+        return callback(new Error('Not allowed by CORS'));
+      }
+    }
+    
+    // If NODE_ENV is not set or has unexpected value, default to strict (production-like) behavior
+    // This prevents accidental exposure in case NODE_ENV is not configured
+    console.warn(`⚠️ NODE_ENV is not set to 'production' or 'development'. Defaulting to strict CORS.`);
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      return callback(null, true);
     } else {
-      console.warn(`⚠️ CORS blocked origin: ${origin}`);
-      console.log(`✅ Allowed origins: ${allowedOrigins.join(', ')}`);
-      callback(new Error('Not allowed by CORS'));
+      console.warn(`⚠️ CORS blocked origin: ${origin} (NODE_ENV=${process.env.NODE_ENV || 'undefined'})`);
+      return callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
